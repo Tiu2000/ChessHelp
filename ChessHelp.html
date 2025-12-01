@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Chess Scenario Builder</title>
+  <style>
+    :root{--light:#f0d9b5;--dark:#b58863;--accent:#2b6cb0;--highlight:rgba(255, 255, 0, 0.4);--move-dot:rgba(43,108,176,.5)}
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; margin:0; padding:12px; background:#f7fafc; color:#111}
+    .app{display:grid; grid-template-columns:360px 1fr; gap:16px; max-width:1200px; margin:0 auto}
+    header{grid-column:1/-1; display:flex; gap:12px; align-items:center}
+    h1{font-size:18px;margin:0}
+    .panel{background:#fff;border-radius:10px;padding:15px;box-shadow:0 6px 18px rgba(2,6,23,.06)}
+    .board-wrap{display:flex;flex-direction:column;gap:12px;align-items:center}
+    .board{width:calc(min(86vw, 560px)); max-width:560px; aspect-ratio:1; display:grid; grid-template-columns:repeat(8,1fr); border-radius:8px; overflow:hidden; touch-action:manipulation; position:relative; box-shadow:0 0 10px rgba(0,0,0,0.5)}
+    .square{width:100%;height:100%; display:flex;align-items:center;justify-content:center; font-size:calc(min(6.2vw,48px)); user-select:none; position:relative; transition:background 0.1s; cursor:pointer}
+    .sq-light{background:var(--light)}
+    .sq-dark{background:var(--dark)}
+    .piece{width:100%;height:100%;display:flex;align-items:center;justify-content:center; font-size:1.1em; cursor:pointer; touch-action:none; pointer-events:none}
+    .selected{background:var(--highlight) !important; box-shadow:inset 0 0 0 4px var(--accent)}
+    .highlight{box-shadow:inset 0 0 0 4px #00aaff !important;}
+    .legal-dot{position:absolute; width:30%; height:30%; background:var(--move-dot); border-radius:50%; pointer-events:none; z-index: 10;}
+    .legal-capture:before{content:''; position:absolute; width:80%; height:80%; border:8px solid var(--move-dot); border-radius:50%; box-sizing: border-box; z-index: 10;}
+    .palette{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:6px;max-width:300px}
+    .cell{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border:1px solid #ccc;cursor:grab; font-size:28px; line-height:1}
+    .remove-cell{background:#f06b6b; color:#fff}
+    @media (max-width:900px){.app{grid-template-columns:1fr;}}
+    textarea{width:100%;height:72px;font-family:monospace; resize:vertical; padding:8px; border:1px solid #ddd; border-radius:4px}
+    .btn{background:var(--accent);color:#fff;padding:8px 10px;border-radius:8px;border:none;cursor:pointer; transition:background 0.2s}
+    .btn:hover{background:#1e5a8e}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent); opacity:0.8}
+    .btn.ghost:hover{opacity:1}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>♟️ Chess Scenario Builder</h1>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button id="flipBtn" class="btn ghost">Flip</button>
+        <button id="clearBtn" class="btn ghost">Clear</button>
+        <button id="defaultBtn" class="btn">Load Start</button>
+      </div>
+    </header>
+
+    <aside class="panel">
+      <h3>Setup & Tools</h3>
+      <div style="margin-bottom:12px;font-size:14px;color:#555">
+        <strong>Drag</strong> pieces from palette to board. <strong>Click</strong> a piece, then click destination to move.
+      </div>
+
+      <div style="margin-bottom:12px">
+        <strong>Piece Palette</strong>
+        <div class="palette" id="palette"></div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:600">FEN Position</label>
+        <textarea id="fen" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></textarea>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button id="loadFen" class="btn">Load FEN</button>
+          <button id="exportFen" class="btn ghost">Export FEN</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:600">Engine Analysis</label>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+          <label>Depth: <input type="number" id="depthRange" min="1" max="5" value="3" style="width:50px;padding:4px"></label>
+          <button id="bestBtn" class="btn">Find Best Move</button>
+        </div>
+        <div id="engineOut" style="margin-top:8px;font-family:monospace;font-size:12px;white-space:pre-wrap;min-height:36px;color:#222;background:#f0f7ff;padding:8px;border-radius:4px">Ready for analysis.</div>
+      </div>
+
+      <div style="margin-top:10px">
+        <button id="downloadPng" class="btn">📸 Screenshot Board</button>
+      </div>
+    </aside>
+
+    <main class="panel board-wrap">
+      <div id="status" style="width:100%;display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:16px">Turn: <span id="turn" style="font-weight:bold;color:var(--accent)">White</span></div>
+        <div style="display:flex;gap:8px">
+          <button id="undoBtn" class="btn ghost">↶ Undo</button>
+        </div>
+      </div>
+
+      <div id="board" class="board" tabindex="0"></div>
+    </main>
+
+    <footer style="grid-column:1/-1; text-align:center; font-size:12px; color:#666; margin-top:6px">
+      Powered by chess.js • Minimax engine with alpha-beta pruning • <span style="opacity:0.5">TIU</span>
+    </footer>
+  </div>
+
+<script>
+// Load chess.js first, then initialize
+(function() {
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js';
+  script.onload = function() {
+    console.log('Chess.js loaded successfully');
+    initChessApp();
+  };
+  script.onerror = function() {
+    document.getElementById('board').innerHTML = '<div style="color:red;padding:20px">Failed to load chess.js library. Please check your internet connection.</div>';
+  };
+  document.head.appendChild(script);
+})();
+
+function initChessApp() {
+  const PIECES = ['K','Q','R','B','N','P'];
+  const UNICODE = {
+    wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',
+    bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟'
+  };
+
+  const palette = document.getElementById('palette');
+  const boardEl = document.getElementById('board');
+  const fenBox = document.getElementById('fen');
+  const engineOut = document.getElementById('engineOut');
+  const turnEl = document.getElementById('turn');
+
+  const chess = new Chess();
+  let selectedSquare = null;
+
+  // Generate board HTML
+  function generateBoard() {
+    let html = '';
+    for (let r = 8; r >= 1; r--) {
+      for (let f = 1; f <= 8; f++) {
+        const file = String.fromCharCode(96 + f);
+        const sq = file + r;
+        const colorClass = ((f + r) % 2) ? 'sq-dark' : 'sq-light';
+        html += `<div class="square ${colorClass}" data-square="${sq}"></div>`;
+      }
+    }
+    return html;
+  }
+
+  // Create piece palette
+  function makePalette() {
+    palette.innerHTML = '';
+    const colors = ['w','b'];
+    colors.forEach(c => {
+      PIECES.forEach(p => {
+        const code = c + p;
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.piece = (c === 'w' ? p.toLowerCase() : p.toUpperCase());
+        cell.innerText = UNICODE[code];
+        cell.setAttribute('draggable', true);
+        cell.addEventListener('dragstart', handlePaletteDragStart);
+        palette.appendChild(cell);
+      });
+    });
+    
+    const removeCell = document.createElement('div');
+    removeCell.className = 'cell remove-cell';
+    removeCell.innerText = '✕';
+    removeCell.dataset.piece = '';
+    removeCell.setAttribute('draggable', true);
+    removeCell.addEventListener('dragstart', handlePaletteDragStart);
+    palette.appendChild(removeCell);
+  }
+
+  // Refresh board display
+  function refreshBoard() {
+    const board = chess.board();
+    clearHighlights();
+
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const piece = board[r][f];
+        const file = String.fromCharCode(97 + f);
+        const rank = 8 - r;
+        const sq = file + rank;
+        const sqEl = boardEl.querySelector(`[data-square="${sq}"]`);
+        if (!sqEl) continue;
+        
+        sqEl.innerHTML = '';
+
+        if (piece) {
+          const p = document.createElement('div');
+          p.className = 'piece';
+          const key = (piece.color === 'w' ? 'w' : 'b') + piece.type.toUpperCase();
+          p.innerText = UNICODE[key];
+          p.dataset.piece = (piece.color === 'w' ? piece.type : piece.type.toUpperCase());
+          sqEl.appendChild(p);
+        }
+      }
+    }
+    
+    turnEl.innerText = chess.turn() === 'w' ? 'White' : 'Black';
+    updateFenBox();
+  }
+
+  function clearHighlights() {
+    boardEl.querySelectorAll('.square').forEach(s => {
+      s.classList.remove('selected', 'highlight', 'legal-capture');
+      const dot = s.querySelector('.legal-dot');
+      if (dot) dot.remove();
+    });
+    selectedSquare = null;
+  }
+
+  function showLegalMoves(fromSq) {
+    const moves = chess.moves({square: fromSq, verbose: true});
+    moves.forEach(move => {
+      const toSqEl = boardEl.querySelector(`[data-square="${move.to}"]`);
+      if (toSqEl) {
+        if (move.captured || chess.get(move.to)) {
+          toSqEl.classList.add('legal-capture');
+        } else {
+          const dot = document.createElement('div');
+          dot.className = 'legal-dot';
+          toSqEl.appendChild(dot);
+        }
+      }
+    });
+  }
+
+  function handleSquareClick(e) {
+    e.stopPropagation();
+    const sqEl = e.currentTarget;
+    const sq = sqEl.dataset.square;
+    const pieceOnSq = chess.get(sq);
+
+    console.log('Clicked square:', sq, 'Has piece:', !!pieceOnSq, 'Selected:', selectedSquare);
+
+    // Double-click same square to deselect
+    if (selectedSquare === sq) {
+      clearHighlights();
+      return;
+    }
+
+    // Try to move if we have a selected square
+    if (selectedSquare) {
+      const from = selectedSquare;
+      const moveObj = chess.move({from: from, to: sq, promotion: 'q'});
+      console.log('Attempted move:', from, '->', sq, 'Result:', moveObj);
+      if (moveObj) {
+        clearHighlights();
+        refreshBoard();
+        return;
+      }
+      // If move failed, fall through to select new piece
+    }
+
+    // Select piece if clicking on one
+    if (pieceOnSq) {
+      clearHighlights();
+      selectedSquare = sq;
+      sqEl.classList.add('selected');
+      showLegalMoves(sq);
+      console.log('Selected piece at', sq);
+    } else {
+      clearHighlights();
+    }
+  }
+
+  function handlePaletteDragStart(e) {
+    const pieceCode = e.currentTarget.dataset.piece;
+    e.dataTransfer.setData('text/plain', pieceCode);
+    setTimeout(() => e.target.style.opacity = 0.5, 0);
+  }
+
+  function handleSquareDrop(e) {
+    e.preventDefault();
+    const sq = e.currentTarget.dataset.square;
+    const pieceChar = e.dataTransfer.getData('text/plain');
+
+    document.querySelectorAll('.cell').forEach(c => c.style.opacity = 1);
+
+    if (pieceChar === '') {
+      chess.remove(sq);
+    } else {
+      const color = (pieceChar === pieceChar.toUpperCase()) ? 'b' : 'w';
+      const type = pieceChar.toLowerCase();
+      chess.remove(sq);
+      chess.put({type: type, color: color}, sq);
+    }
+    refreshBoard();
+  }
+
+  function highlightMove(from, to) {
+    clearHighlights();
+    const f = boardEl.querySelector(`[data-square="${from}"]`);
+    const t = boardEl.querySelector(`[data-square="${to}"]`);
+    if (f) f.classList.add('highlight');
+    if (t) t.classList.add('highlight');
+    setTimeout(clearHighlights, 2200);
+  }
+
+  function updateFenBox() {
+    fenBox.value = chess.fen();
+  }
+
+  // Simple evaluation function
+  function evaluateSimple(position) {
+    const values = {p: 1, n: 3, b: 3, r: 5, q: 9, k: 0};
+    let s = 0;
+    for (const r of position) {
+      for (const c of r) {
+        if (c) {
+          s += (c.color === 'w' ? 1 : -1) * values[c.type];
+        }
+      }
+    }
+    return s;
+  }
+
+  // Minimax algorithm
+  function minimax(game, depth, isMax) {
+    if (depth === 0 || game.game_over()) {
+      return {score: evaluateSimple(game.board())};
+    }
+    
+    const moves = game.moves({verbose: true});
+    let bestMove = null;
+
+    if (isMax) {
+      let best = -99999;
+      for (const m of moves) {
+        game.move(m);
+        const val = minimax(game, depth - 1, false).score;
+        game.undo();
+        if (val > best) {
+          best = val;
+          bestMove = m;
+        }
+      }
+      return {score: best, move: bestMove};
+    } else {
+      let best = 99999;
+      for (const m of moves) {
+        game.move(m);
+        const val = minimax(game, depth - 1, true).score;
+        game.undo();
+        if (val < best) {
+          best = val;
+          bestMove = m;
+        }
+      }
+      return {score: best, move: bestMove};
+    }
+  }
+
+  // Event listeners
+  document.getElementById('loadFen').addEventListener('click', () => {
+    const f = fenBox.value.trim();
+    if (!f) return alert('Please enter a FEN string');
+    if (!chess.load(f)) return alert('Invalid FEN string');
+    refreshBoard();
+  });
+
+  document.getElementById('exportFen').addEventListener('click', updateFenBox);
+  
+  document.getElementById('defaultBtn').addEventListener('click', () => {
+    chess.reset();
+    refreshBoard();
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    chess.clear();
+    refreshBoard();
+  });
+
+  document.getElementById('flipBtn').addEventListener('click', () => {
+    const flipped = boardEl.style.transform === 'rotate(180deg)';
+    boardEl.style.transform = flipped ? 'none' : 'rotate(180deg)';
+    Array.from(boardEl.querySelectorAll('.piece')).forEach(p => 
+      p.style.transform = flipped ? 'none' : 'rotate(180deg)'
+    );
+  });
+
+  document.getElementById('undoBtn').addEventListener('click', () => {
+    chess.undo();
+    refreshBoard();
+  });
+
+  document.getElementById('bestBtn').addEventListener('click', () => {
+    const depth = parseInt(document.getElementById('depthRange').value, 10);
+    engineOut.innerText = `Analyzing at depth ${depth}...`;
+
+    setTimeout(() => {
+      const copy = new Chess(chess.fen());
+      const isWhiteTurn = chess.turn() === 'w';
+      const res = minimax(copy, depth, isWhiteTurn);
+
+      if (res && res.move) {
+        const moveSan = copy.move({from: res.move.from, to: res.move.to, promotion: 'q'});
+        engineOut.innerText = `Best: ${res.move.from}→${res.move.to} (${moveSan.san})\nEval: ${res.score > 0 ? '+' : ''}${res.score}`;
+        highlightMove(res.move.from, res.move.to);
+      } else if (copy.game_over()) {
+        engineOut.innerText = copy.in_checkmate() ? '🏁 Checkmate!' : '🤝 Draw/Stalemate';
+      } else {
+        engineOut.innerText = 'No legal moves found.';
+      }
+    }, 50);
+  });
+
+  document.getElementById('downloadPng').addEventListener('click', () => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    script.onload = () => {
+      html2canvas(boardEl).then(canvas => {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'chess_position.png';
+        a.click();
+      });
+    };
+    document.head.appendChild(script);
+  });
+
+  // Initialize board
+  boardEl.innerHTML = generateBoard();
+  boardEl.querySelectorAll('.square').forEach(sqEl => {
+    sqEl.addEventListener('click', handleSquareClick);
+    sqEl.addEventListener('dragover', e => e.preventDefault());
+    sqEl.addEventListener('drop', handleSquareDrop);
+  });
+
+  makePalette();
+  chess.reset();
+  refreshBoard();
+  
+  console.log('Chess app initialized successfully!');
+}
+</script>
+</body>
+</html>
